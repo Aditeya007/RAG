@@ -30,11 +30,11 @@ class ContentPipeline:
             raise DropItem(f"No content after cleaning")
         
         # MUCH LESS STRICT duplicate detection - only for very long content
-        if len(cleaned_text) > 1000:  # Only check very long content
-            content_hash = hashlib.md5(cleaned_text.encode()).hexdigest()
-            if content_hash in self.seen_content_hashes:
-                raise DropItem(f"Duplicate content hash")
-            self.seen_content_hashes.add(content_hash)
+        
+        content_hash = hashlib.md5(cleaned_text.encode()).hexdigest()
+        if content_hash in self.seen_content_hashes:
+            raise DropItem(f"Duplicate content hash")
+        self.seen_content_hashes.add(content_hash)
         
         # MINIMAL word count - accept almost everything
         word_count = len(cleaned_text.split())

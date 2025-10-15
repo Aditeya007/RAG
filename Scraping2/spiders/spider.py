@@ -7,17 +7,10 @@ from datetime import datetime
 import logging
 import re
 import json
-import os
-import sys
 from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 from typing import List, Set
 import html
 from collections import Counter
-
-# Add parent directory to sys.path to enable absolute imports
-parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
 
 try:
     from scrapy_playwright.page import PageMethod
@@ -26,7 +19,10 @@ except ImportError:
     PLAYWRIGHT_AVAILABLE = False
     PageMethod = None
 
-from Scraping2.items import ScrapedContentItem
+try:
+    from Scraping2.items import ScrapedContentItem
+except ImportError:
+    from ..items import ScrapedContentItem
 
 logger = logging.getLogger(__name__)
 
@@ -510,13 +506,9 @@ class FixedUniversalSpider(scrapy.Spider):
             logger.error(f"Sitemap parse error {response.url}: {e}")
 
     def _create_request_for_url(self, url: str, from_sitemap: bool = False, depth: int = 0) -> scrapy.Request:
-        # Mark as currently processing to prevent duplicates
-        canonical_url = self._canonicalize_url(url)
-        self.currently_processing_urls.add(canonical_url)
-        
         priority = 95 if from_sitemap else max(10, 80 - (depth * 5))
         return scrapy.Request(
-            canonical_url,  # Use canonical URL for consistency
+            url,
             callback=self.parse_any,
             errback=self.handle_error,
             headers=self._get_default_headers(),
@@ -538,12 +530,9 @@ class FixedUniversalSpider(scrapy.Spider):
             # Check if already processed before doing any work
             if self._is_url_already_processed(response.url):
                 logger.info(f"🔄 Skipping already processed page: {response.url}")
-                # Clean up: remove from currently processing since it's already done
-                canonical_url = self._canonicalize_url(response.url)
-                self.currently_processing_urls.discard(canonical_url)
                 return
                 
-            # Mark as currently being processed (may already be marked from request creation)
+            # Mark as currently being processed
             self._mark_url_as_processing(response.url)
             
             self.urls_processed += 1
@@ -568,13 +557,10 @@ class FixedUniversalSpider(scrapy.Spider):
                 self.items_extracted += 1
                 yield item
 
-            # CRITICAL FIX: Mark as fully processed BEFORE extracting links
-            # This ensures that when we discover links, this URL is already marked as processed
-            # and won't be re-added to the queue if discovered again from another page
+            # Mark as fully processed after content extraction
             self._mark_url_as_fully_processed(response.url)
 
             # Discover links and pagination
-            # Now when this extracts links, the current URL is already in fully_processed_urls
             yield from self._discover_and_follow_links(response)
 
             # Fallback to Playwright if thin content
@@ -642,10 +628,7 @@ class FixedUniversalSpider(scrapy.Spider):
             links.extend(self._generate_pagination_candidates(response))
 
             followed = 0
-            skipped_already_processed = 0
-            skipped_currently_processing = 0
             seen = set()
-            
             for href in links:
                 if not href or href in seen:
                     continue
@@ -654,36 +637,27 @@ class FixedUniversalSpider(scrapy.Spider):
                     continue
                 absolute_url = self._canonicalize_url(response.urljoin(href))
                 
-                # CRITICAL FIX: Canonicalize FIRST, then do all checks
-                canonical_url = self._canonicalize_url(absolute_url)
+                # Double-check URL filtering before yielding request
+                if not self._should_process_url(absolute_url):
+                    logger.debug(f"Filtering out binary file URL in link discovery: {absolute_url}")
+                    continue
+                    
+                if not self._should_follow_link(absolute_url):
+                    continue
                 
                 # Skip if already processed or currently being processed
-                # This prevents the infinite loop where we keep re-discovering processed URLs
-                if canonical_url in self.fully_processed_urls:
-                    skipped_already_processed += 1
+                if self._is_url_already_processed(absolute_url):
+                    logger.debug(f"🔄 Skipping already processed URL in link discovery: {absolute_url}")
                     continue
                 
+                canonical_url = self._canonicalize_url(absolute_url)
                 if canonical_url in self.currently_processing_urls:
-                    skipped_currently_processing += 1
+                    logger.debug(f"⏳ Skipping currently processing URL: {absolute_url}")
                     continue
-                
-                # Check if this URL should be followed
-                if not self._should_follow_link(canonical_url):
-                    continue
-                
-                # Check for binary files and other filtering
-                if not self._should_process_url(canonical_url):
-                    logger.debug(f"Filtering out binary file URL in link discovery: {canonical_url}")
-                    continue
-                
-                # Only add to discovered_urls if we're actually going to process it
-                self.discovered_urls.add(canonical_url)
-                
-                # Add to currently_processing_urls to prevent duplicate requests
-                self.currently_processing_urls.add(canonical_url)
-                
+                    
+                self.discovered_urls.add(absolute_url)
                 yield scrapy.Request(
-                    canonical_url,  # Use canonical URL for consistency
+                    absolute_url,
                     callback=self.parse_any,
                     errback=self.handle_error,
                     headers=self._get_default_headers(),
@@ -694,18 +668,12 @@ class FixedUniversalSpider(scrapy.Spider):
                         "from_sitemap": False,
                         "parent_url": response.url,
                     },
-                    priority=max(10, self._calculate_link_priority(canonical_url)),
+                    priority=max(10, self._calculate_link_priority(absolute_url)),
                     dont_filter=False,
                 )
                 followed += 1
                 if followed >= self.max_links_per_page:
                     break
-            
-            # Log summary to track effectiveness
-            if skipped_already_processed > 0 or skipped_currently_processing > 0:
-                logger.info(f"🔄 Link filtering from {response.url}: followed={followed}, "
-                           f"skipped_processed={skipped_already_processed}, "
-                           f"skipped_processing={skipped_currently_processing}")
         except Exception as e:
             logger.warning(f"Link discovery error for {response.url}: {e}")
 
@@ -913,19 +881,15 @@ class FixedUniversalSpider(scrapy.Spider):
             # Check if already processed before doing any work
             if self._is_url_already_processed(response.url):
                 logger.info(f"🔄 Skipping already processed JSON: {response.url}")
-                # Clean up: remove from currently processing since it's already done
-                canonical_url = self._canonicalize_url(response.url)
-                self.currently_processing_urls.discard(canonical_url)
                 return
                 
-            # Mark as currently being processed (may already be marked from request creation)
+            # Mark as currently being processed
             self._mark_url_as_processing(response.url)
             
             url = response.url.lower()
             try:
                 data = json.loads(response.text)
             except Exception:
-                self._mark_url_as_fully_processed(response.url)  # Mark as processed even if parsing fails
                 return
 
             def yield_text(text: str, ctype: str):
@@ -955,7 +919,8 @@ class FixedUniversalSpider(scrapy.Spider):
                         extracted_any = True
                 
                 # Mark as fully processed after content extraction
-                self._mark_url_as_fully_processed(response.url)
+                if extracted_any:
+                    self._mark_url_as_fully_processed(response.url)
                 return
 
             # Generic JSON string harvesting
@@ -975,29 +940,24 @@ class FixedUniversalSpider(scrapy.Spider):
                 yield item
                 extracted_any = True
             
-            # Always mark as fully processed (even if nothing extracted)
-            self._mark_url_as_fully_processed(response.url)
+            # Mark as fully processed after content extraction
+            if extracted_any:
+                self._mark_url_as_fully_processed(response.url)
 
         except Exception as e:
             logger.debug(f"JSON parse error at {response.url}: {e}")
-            # Mark as processed even on error to avoid infinite retries
-            self._mark_url_as_fully_processed(response.url)
 
     def parse_rendered(self, response):
         try:
             # Check if already processed before doing any work
             if self._is_url_already_processed(response.url):
                 logger.info(f"🔄 Skipping already processed rendered page: {response.url}")
-                # Clean up: remove from currently processing since it's already done
-                canonical_url = self._canonicalize_url(response.url)
-                self.currently_processing_urls.discard(canonical_url)
                 return
                 
-            # Mark as currently being processed (may already be marked from request creation)
+            # Mark as currently being processed (if not already)
             self._mark_url_as_processing(response.url)
             
             if not getattr(response, "text", ""):
-                self._mark_url_as_fully_processed(response.url)
                 return
             
             extracted_any = False
@@ -1008,12 +968,11 @@ class FixedUniversalSpider(scrapy.Spider):
                     yield item
                     extracted_any = True
             
-            # Always mark as fully processed (even if nothing extracted)
-            self._mark_url_as_fully_processed(response.url)
+            # Mark as fully processed after content extraction
+            if extracted_any:
+                self._mark_url_as_fully_processed(response.url)
         except Exception as e:
             logger.error(f"Playwright rendered parse error {response.url}: {e}")
-            # Mark as processed even on error to avoid infinite retries
-            self._mark_url_as_fully_processed(response.url)
 
     def handle_sitemap_error(self, failure):
         logger.warning(f"Sitemap failed: {getattr(failure, 'request', None) and failure.request.url}")
@@ -1022,11 +981,6 @@ class FixedUniversalSpider(scrapy.Spider):
     def handle_error(self, failure):
         url_str = failure.request.url if hasattr(failure, "request") else str(failure)
         logger.error(f"Request failed for {url_str}: {getattr(failure, 'value', failure)}")
-        
-        # Mark failed URLs as processed to prevent infinite retry loops
-        if hasattr(failure, "request") and failure.request.url:
-            self._mark_url_as_fully_processed(failure.request.url)
-            self.failed_urls.add(failure.request.url)
 
     def close(self, reason):
         logger.info(f"\n🛑 SPIDER CLOSING - Reason: {reason}")
