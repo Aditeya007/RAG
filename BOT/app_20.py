@@ -979,7 +979,7 @@ ANSWER (be concise and factual):"""
                     self.conversation_contexts[session_id]['lead_collected'] = True
                     # Store email in session
                     self.conversation_contexts[session_id]["email"] = email
-                    return "Perfect! I've saved your email address. Thank you for providing your contact information. How can I help you today?"
+                    return "Perfect! I've saved your email address. We will contact you soon regarding your queries"
             
             # Check if we should ask for name
             if not self.conversation_contexts.get(session_id, {}).get("username"):
@@ -1115,7 +1115,7 @@ ANSWER (be concise and factual):"""
 async def lifespan(app: FastAPI):
     global chatbot
     print("🚀 Initializing RAG Chatbot with MongoDB Contact Extraction...")
-    chroma_db_path = r"C:\Users\Abcom\Desktop\FINAL_SCRAPE - Copy - Copy\chroma_db_test"
+    chroma_db_path = r"C:\Users\Abcom\Desktop\RAG\chroma_db_tech2"
     collection_name = "scraped_content"
     try:
         chatbot = SemanticIntelligentRAG(chroma_db_path, collection_name)
