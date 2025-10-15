@@ -8,7 +8,7 @@ from scrapy.crawler import CrawlerProcess
 from scrapy.utils.project import get_project_settings
 
 # Import spider from the project module
-from Scraping2.spiders.spider import FixedUniversalSpider
+from spiders.spider import FixedUniversalSpider
 
 # Pre-fetch NLTK data
 try:

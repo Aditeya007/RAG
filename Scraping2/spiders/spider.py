@@ -19,10 +19,14 @@ except ImportError:
     PLAYWRIGHT_AVAILABLE = False
     PageMethod = None
 
+# Import items - handle both package and direct execution
 try:
-    from Scraping2.items import ScrapedContentItem
+    from items import ScrapedContentItem
 except ImportError:
-    from ..items import ScrapedContentItem
+    try:
+        from Scraping2.items import ScrapedContentItem
+    except ImportError:
+        from ..items import ScrapedContentItem
 
 logger = logging.getLogger(__name__)
 
