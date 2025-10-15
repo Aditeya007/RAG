@@ -2,13 +2,19 @@
 
 import logging
 import sys
+import os
 import nltk
 from urllib.parse import urlparse
 from scrapy.crawler import CrawlerProcess
 from scrapy.utils.project import get_project_settings
 
+# Add parent directory to sys.path to enable absolute imports
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
 # Import spider from the project module
-from spiders.spider import FixedUniversalSpider
+from Scraping2.spiders.spider import FixedUniversalSpider
 
 # Pre-fetch NLTK data
 try:
