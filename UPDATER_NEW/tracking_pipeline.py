@@ -1,20 +1,5 @@
 # UPDATER_NEW/tracking_pipeline.py
-"""
-MongoDBTrackingPipeline: Tracks content changes AFTER ChromaDB storage.
 
-This pipeline runs LAST in the pipeline chain (priority 400), ensuring:
-1. Items have been validated (ContentPipeline)
-2. Chunks have been created (ChunkingPipeline)
-3. Chunks have been stored in ChromaDB (ChromaDBPipeline)
-
-Only then does it track changes and manage MongoDB records.
-
-Key Features:
-- Detects NEW/MODIFIED/UNCHANGED content via SHA256 hashing
-- Deletes old ChromaDB chunks for modified content
-- Drops unchanged items to prevent duplicate processing
-- Maintains statistics for reporting
-"""
 
 import sys
 import os
@@ -167,22 +152,26 @@ class MongoDBTrackingPipeline:
     
     def process_item(self, item: Dict[str, Any], spider) -> Dict[str, Any]:
         """
-        Process item: track changes, manage MongoDB and ChromaDB.
+        Process item: detect changes and manage MongoDB BEFORE ChromaDB storage.
         
-        This runs AFTER ChromaDBPipeline, so chunks are already stored.
+        This runs BEFORE ChromaDBPipeline, so we can prevent duplicate storage.
         
         Args:
             item: Scraped item with url, text, chunks, etc.
             spider: Spider instance
             
         Returns:
-            Item (for new/modified content)
+            Item (for new/modified content to proceed to ChromaDB)
             
         Raises:
-            DropItem: For unchanged content (prevents duplicate processing)
+            DropItem: For unchanged content (prevents ChromaDB duplicate storage)
         """
         url = item.get('url')
         text = item.get('text', '')
+        # Normalize domain for storage
+        domain = item.get('domain', '').lower()
+        if domain.startswith('www.'):
+            domain = domain[4:]
         
         if not url or not text:
             logger.warning(f"  ⚠ Skipping item without URL or text")
@@ -201,9 +190,11 @@ class MongoDBTrackingPipeline:
             
             if existing_record is None:
                 # NEW URL - First time seeing this content
-                logger.info(f"  ✓ NEW: {url} ({chunk_count} chunks)")
+                logger.info(f"  ✓ NEW: {url} ({chunk_count} chunks) - will store in ChromaDB")
                 
-                document = {
+                # Prepare MongoDB document (will insert after ChromaDB storage succeeds)
+                item['_tracking_action'] = 'insert'
+                item['_tracking_document'] = {
                     'url': url,
                     'content_hash': content_hash,
                     'first_seen': datetime.utcnow(),
@@ -211,20 +202,14 @@ class MongoDBTrackingPipeline:
                     'last_modified': datetime.utcnow(),
                     'chunk_count': chunk_count,
                     'status': 'active',
-                    'domain': item.get('domain', ''),
+                    'domain': domain,
                     'title': item.get('title', ''),
                     'word_count': item.get('word_count', 0)
                 }
                 
-                try:
-                    self.url_tracking.insert_one(document)
-                    self.urls_new += 1
-                except DuplicateKeyError:
-                    # Another thread inserted this URL
-                    logger.warning(f"  ⚠ Duplicate key for URL (concurrent insert): {url}")
-                    self.urls_unchanged += 1
+                self.urls_new += 1
                 
-                # Return item - chunks already stored by ChromaDBPipeline
+                # Return item - will proceed to ChromaDB
                 return item
                 
             else:
@@ -232,51 +217,44 @@ class MongoDBTrackingPipeline:
                 old_hash = existing_record.get('content_hash')
                 
                 if old_hash != content_hash:
-                    # MODIFIED CONTENT - Delete old chunks, update record
-                    logger.info(f"  ⚠ MODIFIED: {url}")
+                    # MODIFIED CONTENT - Delete old chunks BEFORE storing new ones
+                    logger.info(f"  ⚠ MODIFIED: {url} - deleting old chunks, will store new ones")
                     
-                    # Delete old chunks from ChromaDB
+                    # Delete old chunks from ChromaDB NOW (before new storage)
                     deleted_count = self._delete_old_chunks(url)
                     self.chunks_deleted += deleted_count
                     
-                    # Update MongoDB record
-                    self.url_tracking.update_one(
-                        {"url": url},
-                        {
-                            "$set": {
-                                'content_hash': content_hash,
-                                'last_checked': datetime.utcnow(),
-                                'last_modified': datetime.utcnow(),
-                                'chunk_count': chunk_count,
-                                'word_count': item.get('word_count', 0),
-                                'title': item.get('title', '')
-                            }
-                        }
-                    )
+                    # Prepare MongoDB update (will execute after ChromaDB storage succeeds)
+                    item['_tracking_action'] = 'update'
+                    item['_tracking_update'] = {
+                        'content_hash': content_hash,
+                        'last_checked': datetime.utcnow(),
+                        'last_modified': datetime.utcnow(),
+                        'chunk_count': chunk_count,
+                        'word_count': item.get('word_count', 0),
+                        'title': item.get('title', '')
+                    }
                     
                     self.urls_modified += 1
-                    logger.info(f"  ✓ Updated: Deleted {deleted_count} old chunks, {chunk_count} new chunks already stored")
+                    logger.info(f"  ✓ Deleted {deleted_count} old chunks - new chunks will be stored")
                     
-                    # Return item - new chunks already stored by ChromaDBPipeline
+                    # Return item - will proceed to ChromaDB
                     return item
                     
                 else:
-                    # UNCHANGED CONTENT - Only update last_checked timestamp
+                    # UNCHANGED CONTENT - Do NOT store in ChromaDB
+                    # Only update last_checked timestamp
                     self.url_tracking.update_one(
                         {"url": url},
                         {"$set": {'last_checked': datetime.utcnow()}}
                     )
                     
                     self.urls_unchanged += 1
-                    logger.debug(f"  = UNCHANGED: {url}")
+                    logger.debug(f"  = UNCHANGED: {url} - skipping ChromaDB storage")
                     
-                    # Drop the item - content hasn't changed
-                    # ChromaDBPipeline already stored chunks, but since content
-                    # is unchanged, we should have prevented duplicate storage
-                    # NOTE: This happens AFTER ChromaDB storage, so we log it
-                    # but the duplicate has already been added. This is a known
-                    # limitation - unchanged detection happens post-storage.
-                    raise DropItem(f"Content unchanged - skipping further processing: {url}")
+                    # Drop the item - content hasn't changed, no need to store
+                    # This prevents ChromaDB from receiving duplicate content
+                    raise DropItem(f"Content unchanged - skipping ChromaDB storage: {url}")
                     
         except DropItem:
             # Re-raise DropItem to stop pipeline processing
@@ -285,16 +263,19 @@ class MongoDBTrackingPipeline:
         except DuplicateKeyError as e:
             logger.warning(f"  ⚠ Duplicate key error for {url}: {e}")
             self.urls_unchanged += 1
-            return item
+            # Drop to prevent duplicate ChromaDB storage
+            raise DropItem(f"Duplicate URL detected: {url}")
             
         except PyMongoError as e:
             logger.error(f"  ✗ MongoDB error for {url}: {e}")
             self.errors += 1
+            # Allow item to proceed - we'll try to store in ChromaDB anyway
             return item
             
         except Exception as e:
             logger.error(f"  ✗ Unexpected error tracking {url}: {e}", exc_info=True)
             self.errors += 1
+            # Allow item to proceed - we'll try to store in ChromaDB anyway
             return item
     
     def close_spider(self, spider):
@@ -331,5 +312,92 @@ class MongoDBTrackingPipeline:
         try:
             self.mongo_client.close()
             logger.info("✓ MongoDB connection closed")
+        except Exception as e:
+            logger.error(f"✗ Error closing MongoDB connection: {e}")
+
+
+class MongoDBFinalizerPipeline:
+    """
+    Pipeline that finalizes MongoDB records AFTER ChromaDB storage.
+    
+    Runs at priority 400 (after ChromaDBPipeline at 350) to complete
+    the MongoDB tracking started by MongoDBTrackingPipeline.
+    
+    This ensures MongoDB is only updated if ChromaDB storage succeeds.
+    """
+    
+    @classmethod
+    def from_crawler(cls, crawler):
+        return cls()
+    
+    def __init__(self):
+        """Initialize MongoDB connection."""
+        logger.info("Initializing MongoDBFinalizerPipeline")
+        
+        try:
+            self.mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+            self.mongo_client.server_info()
+            self.db = self.mongo_client[MONGO_DB]
+            self.url_tracking = self.db[MONGO_COLLECTION]
+            logger.info("✓ MongoDBFinalizerPipeline connected to MongoDB")
+        except Exception as e:
+            logger.error(f"✗ MongoDBFinalizerPipeline failed to connect: {e}")
+            raise
+    
+    def process_item(self, item: Dict[str, Any], spider) -> Dict[str, Any]:
+        """
+        Finalize MongoDB tracking after ChromaDB storage.
+        
+        Args:
+            item: Item that was successfully stored in ChromaDB
+            spider: Spider instance
+            
+        Returns:
+            Item unchanged
+        """
+        tracking_action = item.get('_tracking_action')
+        
+        if not tracking_action:
+            # No tracking action needed (error or unchanged item that somehow got through)
+            return item
+        
+        url = item.get('url')
+        
+        try:
+            if tracking_action == 'insert':
+                # Insert new MongoDB record
+                document = item.get('_tracking_document')
+                if document:
+                    try:
+                        self.url_tracking.insert_one(document)
+                        logger.debug(f"  ✓ MongoDB: Inserted new record for {url}")
+                    except DuplicateKeyError:
+                        logger.warning(f"  ⚠ MongoDB: URL already exists (concurrent insert): {url}")
+                        
+            elif tracking_action == 'update':
+                # Update existing MongoDB record
+                update_data = item.get('_tracking_update')
+                if update_data:
+                    self.url_tracking.update_one(
+                        {"url": url},
+                        {"$set": update_data}
+                    )
+                    logger.debug(f"  ✓ MongoDB: Updated record for {url}")
+                    
+        except Exception as e:
+            logger.error(f"  ✗ MongoDB finalizer error for {url}: {e}")
+        
+        # Clean up tracking metadata from item
+        item.pop('_tracking_action', None)
+        item.pop('_tracking_document', None)
+        item.pop('_tracking_update', None)
+        
+        return item
+    
+    def close_spider(self, spider):
+        """Close MongoDB connection."""
+        try:
+            self.mongo_client.close()
+            logger.info("✓ MongoDBFinalizerPipeline closed MongoDB connection")
         except Exception as e:
             logger.error(f"✗ Error closing MongoDB connection: {e}")

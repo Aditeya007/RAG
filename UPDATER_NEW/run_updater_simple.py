@@ -81,7 +81,11 @@ def get_user_input() -> tuple:
             print(f"❌ Error parsing URL: {e}")
             continue
     
-    print(f"✓ Domain extracted: {domain}")
+    # Normalize domain: lowercase, strip 'www.'
+    norm_domain = domain.lower()
+    if norm_domain.startswith('www.'):
+        norm_domain = norm_domain[4:]
+    print(f"✓ Domain extracted: {domain} (normalized: {norm_domain})")
     
     # Ask about sitemap
     sitemap_choice = input("\nDo you have a sitemap URL? (y/n, default: n): ").strip().lower()
@@ -95,7 +99,7 @@ def get_user_input() -> tuple:
         elif sitemap_url:
             print(f"✓ Will use sitemap: {sitemap_url}")
     
-    return start_url, domain, sitemap_url
+    return start_url, norm_domain, sitemap_url
 
 
 def check_existing_records(domain: str) -> dict:
@@ -210,21 +214,30 @@ def run_updater(start_url: str, domain: str, sitemap_url: str = None):
         settings.set('SPIDER_MODULES', ['Scraping2.spiders', 'UPDATER_NEW'])
         settings.set('NEWSPIDER_MODULE', 'UPDATER_NEW')
         
-        # Add MongoDBTrackingPipeline AFTER existing pipelines
-        # Existing pipelines from settings.py:
+        # Configure pipeline order for intelligent update detection:
         # - ContentPipeline (300): Text cleaning, validation
         # - ChunkingPipeline (320): Creates chunks
-        # - ChromaDBPipeline (350): Stores chunks in ChromaDB
-        # New tracking pipeline (400): Runs LAST to track changes
+        # - MongoDBTrackingPipeline (340): Detects NEW/MODIFIED/UNCHANGED, drops unchanged ⭐
+        # - ChromaDBPipeline (350): Stores ONLY new/modified chunks (unchanged are dropped)
+        # - MongoDBFinalizerPipeline (400): Finalizes MongoDB tracking after successful storage
         pipelines = settings.get('ITEM_PIPELINES', {})
-        pipelines['UPDATER_NEW.tracking_pipeline.MongoDBTrackingPipeline'] = 400
+        pipelines['UPDATER_NEW.tracking_pipeline.MongoDBTrackingPipeline'] = 340
+        pipelines['UPDATER_NEW.tracking_pipeline.MongoDBFinalizerPipeline'] = 400
         settings.set('ITEM_PIPELINES', pipelines)
         
-        logger.info("Pipeline order configured:")
-        logger.info("  300 - ContentPipeline (text cleaning)")
-        logger.info("  320 - ChunkingPipeline (create chunks)")
-        logger.info("  350 - ChromaDBPipeline (store in ChromaDB)")
-        logger.info("  400 - MongoDBTrackingPipeline (track changes) ⭐")
+        logger.info("=" * 80)
+        logger.info("INTELLIGENT UPDATE PIPELINE ORDER:")
+        logger.info("=" * 80)
+        logger.info("  300 - ContentPipeline (text cleaning & validation)")
+        logger.info("  320 - ChunkingPipeline (create text chunks)")
+        logger.info("  340 - MongoDBTrackingPipeline (detect changes, drop unchanged) ⭐")
+        logger.info("  350 - ChromaDBPipeline (store ONLY new/modified content)")
+        logger.info("  400 - MongoDBFinalizerPipeline (finalize tracking)")
+        logger.info("=" * 80)
+        logger.info("")
+        logger.info("✓ Unchanged content will be detected and skipped BEFORE ChromaDB storage")
+        logger.info("✓ Only NEW and MODIFIED content will be stored in ChromaDB")
+        logger.info("✓ Output will match Scraping2 for new content, with smart updates")
         logger.info("")
         
         # Create crawler process
