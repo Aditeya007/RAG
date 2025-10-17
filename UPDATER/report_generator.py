@@ -20,7 +20,7 @@ class UpdateReportGenerator:
 
     def __init__(self, mongo_uri=None, chroma_path=None):
         self.mongo_uri = mongo_uri or "mongodb://localhost:27017/"
-        self.chroma_path = chroma_path or "./chroma_db_tech2"
+        self.chroma_path = chroma_path or "./final_db"
 
         # MongoDB connection
         self.mongo_client = MongoClient(self.mongo_uri)

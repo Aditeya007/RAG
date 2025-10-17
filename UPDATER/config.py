@@ -1,10 +1,10 @@
 
 MONGO_URI = "mongodb://localhost:27017/"
-MONGO_DATABASE = "rag_updater"
+MONGO_DATABASE = "fresh_update"
 MONGO_COLLECTION_URL_TRACKING = "url_tracking"
 
 # ChromaDB Configuration
-CHROMA_DB_PATH = "./updater_test_db"
+CHROMA_DB_PATH = "./tech1"
 CHROMA_COLLECTION_NAME = "scraped_content"
 CHROMA_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 
@@ -23,8 +23,8 @@ MINIMUM_CONTENT_LENGTH = 20
 
 # Logging Configuration
 LOG_LEVEL = "INFO"
-LOG_FILE_UPDATER = "rag_updater.log"
-LOG_FILE_SCHEDULER = "rag_scheduler.log"
+LOG_FILE_UPDATER = "LOG_FILE"
+LOG_FILE_SCHEDULER = "LOG_FILE"
 
 # Content Detection
 MINIMUM_CONTENT_LENGTH = 100

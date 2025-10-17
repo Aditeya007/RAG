@@ -83,9 +83,9 @@ def ask_options():
 
     # Ask for depth limit
     while True:
-        depth_input = input("Max crawl depth (default: 1): ").strip()
+        depth_input = input("Max crawl depth (default: 999): ").strip()
         if not depth_input:
-            max_depth = 1
+            max_depth = 999
             break
         try:
             max_depth = int(depth_input)
