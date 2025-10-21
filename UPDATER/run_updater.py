@@ -1,5 +1,13 @@
 # run_updater.py - Interactive RAG Updater
-# Just run: python run_updater.py
+# 
+# Usage:
+#   Interactive mode:  python run_updater.py
+#   Automated mode:    python run_updater.py <url>
+#
+# Examples:
+#   python run_updater.py
+#   python run_updater.py https://example.com
+#   python run_updater.py http://localhost:8000
 
 import sys
 import os
@@ -32,7 +40,39 @@ def print_banner():
 
 
 def get_user_input():
-    """Get URL from user interactively"""
+    """Get URL from user interactively or via command-line argument"""
+    # Check if URL was provided as command-line argument
+    if len(sys.argv) > 1:
+        start_url = sys.argv[1].strip()
+        print(f"📝 Using URL from command-line argument: {start_url}")
+        
+        # Add https:// if missing
+        if not start_url.startswith(('http://', 'https://')):
+            start_url = 'https://' + start_url
+            print(f"   Added https:// → {start_url}")
+        
+        # Validate URL format
+        try:
+            parsed = urlparse(start_url)
+            if not parsed.netloc:
+                print("❌ Invalid URL format provided in command-line argument.")
+                print("   Please provide a valid URL.")
+                sys.exit(1)
+            
+            domain = parsed.netloc
+            
+            print(f"✓ Domain: {domain}")
+            print(f"✓ Start URL: {start_url}")
+            print()
+            
+            return domain, start_url
+            
+        except Exception as e:
+            print(f"❌ Error parsing URL from command-line: {e}")
+            print("   Please provide a valid URL.")
+            sys.exit(1)
+    
+    # Fall back to interactive input if no command-line argument
     print("📝 Enter the website URL to update:")
     print("   (Example: https://example.com)")
     print()
@@ -76,7 +116,21 @@ def get_user_input():
 
 
 def ask_options():
-    """Ask for optional settings"""
+    """Ask for optional settings or use defaults if running non-interactively"""
+    # If command-line argument was provided, use defaults (non-interactive mode)
+    if len(sys.argv) > 1:
+        print("⚙️  Using default settings (non-interactive mode)")
+        print(f"   Max crawl depth: 999")
+        print(f"   Generate report: No")
+        print(f"   Sitemap URL: None")
+        print()
+        return {
+            'max_depth': 999,
+            'generate_report': False,
+            'sitemap_url': None
+        }
+    
+    # Interactive mode - ask for settings
     print("\n" + "-"*80)
     print("⚙️  OPTIONAL SETTINGS (press Enter to use defaults)")
     print("-"*80)
@@ -185,14 +239,20 @@ def main():
     print("\n" + "="*80)
     print("Press Ctrl+C at any time to stop the update")
     print("="*80)
-    input("\nPress Enter to start the update...")
+    
+    # Only prompt for Enter if running interactively (no command-line args)
+    if len(sys.argv) <= 1:
+        input("\nPress Enter to start the update...")
+    else:
+        print("\n🚀 Starting update automatically (non-interactive mode)...\n")
 
     # Run update
     success = run_update(domain, start_url, options)
 
     if success:
         print("\n✅ All operations completed successfully")
-        print("\nRun again? Just type: python run_updater.py\n")
+        if len(sys.argv) <= 1:
+            print("\nRun again? Just type: python run_updater.py\n")
     else:
         print("\n❌ Operation failed or was cancelled\n")
 
