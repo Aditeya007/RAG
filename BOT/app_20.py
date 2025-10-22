@@ -158,7 +158,7 @@ chatbot = None
 
 # Pydantic models for API request/response
 class QuestionRequest(BaseModel):
-    question: str
+    query: str
     session_id: Optional[str] = "default"
 
 class AnswerResponse(BaseModel):
@@ -1115,7 +1115,7 @@ ANSWER (be concise and factual):"""
 async def lifespan(app: FastAPI):
     global chatbot
     print("🚀 Initializing RAG Chatbot with MongoDB Contact Extraction...")
-    chroma_db_path = r"./tech1"
+    chroma_db_path = r"C:\Users\Abcom\Desktop\RAG-main\tech1"
     collection_name = "scraped_content"
     try:
         chatbot = SemanticIntelligentRAG(chroma_db_path, collection_name)
@@ -1162,11 +1162,11 @@ async def health_check():
 @app.post("/chat", response_model=AnswerResponse)
 async def chat_endpoint(request: QuestionRequest):
     print(f"🔍 DEBUG - Received session_id: '{request.session_id}'")
-    print(f"🔍 DEBUG - Question: '{request.question}'")
+    print(f"🔍 DEBUG - Query: '{request.query}'")
     if chatbot is None:
         raise HTTPException(status_code=503, detail="Chatbot not initialized")
     try:
-        answer = chatbot.chat(request.question.strip(), request.session_id)
+        answer = chatbot.chat(request.query.strip(), request.session_id)
         return AnswerResponse(answer=answer)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
