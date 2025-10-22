@@ -129,7 +129,7 @@ class ChromaDBPipeline:
             'scraped_at', 'word_count', 'domain', 'text_length'
         ]
         
-        self.db_path = "./chroma_db_tech2"
+        self.db_path = "./tech1"
         self.collection_name = "scraped_content" 
         self.embedding_model_name = "all-MiniLM-L6-v2"
 

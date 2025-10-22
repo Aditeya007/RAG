@@ -1115,7 +1115,7 @@ ANSWER (be concise and factual):"""
 async def lifespan(app: FastAPI):
     global chatbot
     print("🚀 Initializing RAG Chatbot with MongoDB Contact Extraction...")
-    chroma_db_path = r"C:\Users\Abcom\Desktop\RAG\chroma_db_tech2"
+    chroma_db_path = r"./tech1"
     collection_name = "scraped_content"
     try:
         chatbot = SemanticIntelligentRAG(chroma_db_path, collection_name)

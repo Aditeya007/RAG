@@ -90,7 +90,7 @@ ITEM_PIPELINES = {
 }
 
 # ChromaDB
-CHROMA_DB_PATH = "./chroma_db_tech2"
+CHROMA_DB_PATH = "./tech1"
 CHROMA_COLLECTION_NAME = "scraped_content"
 CHROMA_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 CHROMA_BATCH_SIZE = 25
@@ -120,7 +120,7 @@ TELNETCONSOLE_PORT = None
 
 # Logging
 LOG_LEVEL = "INFO"
-LOG_FILE = "scrapy_comprehensive_techno.log"
+LOG_FILE = "LOG_FILE"
 
 # UA rotation list
 USER_AGENT_LIST = [
