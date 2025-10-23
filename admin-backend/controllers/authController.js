@@ -9,15 +9,22 @@ const jwt = require('jsonwebtoken');
  * @route   POST /api/auth/register
  * @access  Public
  * @param   {Object} req.body - { name, email, username, password }
- * @returns {Object} { message: string }
+ * @returns {Object} { message: string, user: Object }
  */
 exports.registerUser = async (req, res) => {
   const { name, email, username, password } = req.body;
   
   try {
-    // Check if email or username already exists
-    const existingEmail = await User.findOne({ email: email.toLowerCase() });
-    const existingUsername = await User.findOne({ username });
+    // Sanitize and normalize inputs
+    const sanitizedEmail = email.toLowerCase().trim();
+    const sanitizedUsername = username.trim();
+    const sanitizedName = name.trim();
+    
+    // Check if email or username already exists (parallel queries for performance)
+    const [existingEmail, existingUsername] = await Promise.all([
+      User.findOne({ email: sanitizedEmail }),
+      User.findOne({ username: sanitizedUsername })
+    ]);
     
     if (existingEmail) {
       return res.status(400).json({ 
@@ -33,21 +40,21 @@ exports.registerUser = async (req, res) => {
       });
     }
 
-    // Hash the password securely
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
+    // Hash the password securely with salt rounds from config or default to 10
+    const saltRounds = parseInt(process.env.BCRYPT_SALT_ROUNDS) || 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
 
     // Create and save user
     const user = new User({ 
-      name: name.trim(), 
-      email: email.toLowerCase().trim(), 
-      username: username.trim(), 
+      name: sanitizedName, 
+      email: sanitizedEmail, 
+      username: sanitizedUsername, 
       password: hashedPassword 
     });
     
     await user.save();
 
-    console.log(`✅ New user registered: ${username} (${email})`);
+    console.log(`✅ New user registered: ${sanitizedUsername} (${sanitizedEmail})`);
     
     res.status(201).json({ 
       message: 'User registered successfully',
@@ -59,12 +66,24 @@ exports.registerUser = async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('❌ Register error:', err);
+    console.error('❌ Register error:', {
+      message: err.message,
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
     
     // Handle mongoose validation errors
     if (err.name === 'ValidationError') {
       const messages = Object.values(err.errors).map(e => e.message);
       return res.status(400).json({ error: messages.join(', ') });
+    }
+    
+    // Handle duplicate key errors (in case of race condition)
+    if (err.code === 11000) {
+      const field = Object.keys(err.keyPattern)[0];
+      return res.status(400).json({ 
+        error: `${field.charAt(0).toUpperCase() + field.slice(1)} already in use`,
+        field
+      });
     }
     
     res.status(500).json({ error: 'Server error during registration' });
@@ -82,21 +101,31 @@ exports.loginUser = async (req, res) => {
   const { username, password } = req.body;
   
   try {
-    // Find user by username (case-insensitive)
-    const user = await User.findOne({ username: username.trim() });
+    // Sanitize input
+    const sanitizedUsername = username.trim();
     
+    // Find user by username
+    const user = await User.findOne({ username: sanitizedUsername });
+    
+    // Use same error message for both invalid username and password
+    // This prevents username enumeration attacks
     if (!user) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      console.warn(`⚠️  Failed login attempt for non-existent user: ${sanitizedUsername}`);
+      return res.status(401).json({ error: 'Invalid username or password' });
     }
 
     // Compare password hash
     const isMatch = await bcrypt.compare(password, user.password);
     
     if (!isMatch) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      console.warn(`⚠️  Failed login attempt for user: ${sanitizedUsername} (wrong password)`);
+      return res.status(401).json({ error: 'Invalid username or password' });
     }
 
-    // Sign JWT token (expires in 1 day)
+    // Get JWT expiration from env or use default
+    const jwtExpiration = process.env.JWT_EXPIRATION || '1d';
+    
+    // Sign JWT token with minimal payload (don't include sensitive data)
     const token = jwt.sign(
       { 
         userId: user._id, 
@@ -104,12 +133,16 @@ exports.loginUser = async (req, res) => {
         email: user.email 
       },
       process.env.JWT_SECRET,
-      { expiresIn: '1d' }
+      { 
+        expiresIn: jwtExpiration,
+        algorithm: 'HS256' // Explicitly set algorithm to prevent algorithm confusion attacks
+      }
     );
     
-    console.log(`✅ User logged in: ${username}`);
+    console.log(`✅ User logged in: ${sanitizedUsername}`);
     
     res.json({
+      message: 'Login successful',
       token,
       user: { 
         id: user._id, 
@@ -119,7 +152,12 @@ exports.loginUser = async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('❌ Login error:', err);
+    console.error('❌ Login error:', {
+      message: err.message,
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
+    
+    // Don't leak error details to client
     res.status(500).json({ error: 'Server error during login' });
   }
 };

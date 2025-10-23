@@ -1,24 +1,18 @@
-// Defines API endpoints for users to manage their info.
-
-// Protected by auth middleware (must be logged in).
-
-// Uses controllers for business logic.
-
-// /api/user/me gives the profile of the currently logged-in user.
-
+// admin-backend/routes/user.js
 
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
 const userController = require('../controllers/userController');
 const { validateProfileUpdate } = require('../middleware/validate');
+const { userLimiter } = require('../middleware/rateLimiter');
 
 /**
  * @route   GET /api/user/me
  * @desc    Get current user's profile
  * @access  Protected (requires JWT)
  */
-router.get('/me', auth, userController.getMe);
+router.get('/me', auth, userLimiter, userController.getMe);
 
 /**
  * @route   PUT /api/user/me
@@ -26,7 +20,7 @@ router.get('/me', auth, userController.getMe);
  * @access  Protected (requires JWT)
  * @body    { name?, email?, username?, password? }
  */
-router.put('/me', auth, validateProfileUpdate, userController.updateMe);
+router.put('/me', auth, userLimiter, validateProfileUpdate, userController.updateMe);
 
 // (Optionally, add more later: delete account, view other stats, etc.)
 
