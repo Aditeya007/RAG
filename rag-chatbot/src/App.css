@@ -19,22 +19,22 @@
   width: 64px;
   height: 64px;
   border-radius: 50%;
-  background: #ff9500;
+  background: #FF8307;
   color: white;
   border: none;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 8px 24px rgba(255, 149, 0, 0.4);
+  box-shadow: 0 8px 24px rgba(255, 131, 7, 0.4);
   z-index: 99999; /* High z-index to stay on top */
   transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 #rag-widget-root .chatbot-launcher-button:hover {
-  background: #e68600;
+  background: #e67506;
   transform: scale(1.1);
-  box-shadow: 0 12px 32px rgba(255, 149, 0, 0.5);
+  box-shadow: 0 12px 32px rgba(255, 131, 7, 0.5);
 }
 
 /* Chatbot Window Container Styling */
@@ -48,7 +48,7 @@
   max-height: 650px;
   background-color: #1a1a1a;
   border-radius: 16px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 1px rgba(255, 149, 0, 0.2);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 1px rgba(255, 131, 7, 0.2);
   z-index: 99998;
   overflow: hidden; /* Ensures child elements conform to the rounded corners */
   display: flex;

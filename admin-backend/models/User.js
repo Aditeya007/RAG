@@ -43,6 +43,26 @@ const UserSchema = new mongoose.Schema(
       minlength: [6, 'Password must be at least 6 characters']
       // Note: Stored as bcrypt hash, never plain text!
     },
+    databaseUri: {
+      type: String,
+      required: [true, 'Database URI is required'],
+      trim: true
+    },
+    botEndpoint: {
+      type: String,
+      required: [true, 'Bot endpoint is required'],
+      trim: true
+    },
+    schedulerEndpoint: {
+      type: String,
+      required: [true, 'Scheduler endpoint is required'],
+      trim: true
+    },
+    scraperEndpoint: {
+      type: String,
+      required: [true, 'Scraper endpoint is required'],
+      trim: true
+    },
     // Future extensions (uncomment when needed):
     // role: { 
     //   type: String, 
@@ -68,8 +88,7 @@ const UserSchema = new mongoose.Schema(
 );
 
 // Indexes for performance
-UserSchema.index({ email: 1 });
-UserSchema.index({ username: 1 });
+// Note: email and username already have unique indexes, so we don't duplicate them
 UserSchema.index({ createdAt: -1 });
 
 // Instance method to get public profile (exclude password)
@@ -79,6 +98,10 @@ UserSchema.methods.toPublicProfile = function() {
     name: this.name,
     username: this.username,
     email: this.email,
+    databaseUri: this.databaseUri,
+    botEndpoint: this.botEndpoint,
+    schedulerEndpoint: this.schedulerEndpoint,
+    scraperEndpoint: this.scraperEndpoint,
     createdAt: this.createdAt,
     updatedAt: this.updatedAt
   };

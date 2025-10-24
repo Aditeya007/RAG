@@ -3,6 +3,7 @@
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { provisionResourcesForUser, ensureUserResources } = require('../services/provisioningService');
 
 /**
  * Register a new user
@@ -44,14 +45,25 @@ exports.registerUser = async (req, res) => {
     const saltRounds = parseInt(process.env.BCRYPT_SALT_ROUNDS) || 10;
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-    // Create and save user
+    // Create user document with provisioned resources
     const user = new User({ 
       name: sanitizedName, 
       email: sanitizedEmail, 
       username: sanitizedUsername, 
       password: hashedPassword 
     });
-    
+
+    try {
+      const resources = provisionResourcesForUser({
+        userId: user._id.toString(),
+        username: sanitizedUsername
+      });
+      user.set(resources);
+    } catch (provisionErr) {
+      console.error('❌ Resource provisioning failed:', provisionErr);
+      return res.status(500).json({ error: 'Failed to provision user resources' });
+    }
+
     await user.save();
 
     console.log(`✅ New user registered: ${sanitizedUsername} (${sanitizedEmail})`);
@@ -62,7 +74,11 @@ exports.registerUser = async (req, res) => {
         id: user._id,
         name: user.name,
         username: user.username,
-        email: user.email
+        email: user.email,
+        databaseUri: user.databaseUri,
+        botEndpoint: user.botEndpoint,
+        schedulerEndpoint: user.schedulerEndpoint,
+        scraperEndpoint: user.scraperEndpoint
       }
     });
   } catch (err) {
@@ -139,6 +155,9 @@ exports.loginUser = async (req, res) => {
       }
     );
     
+    // Make sure resource metadata is always available before issuing token
+    await ensureUserResources(user);
+
     console.log(`✅ User logged in: ${sanitizedUsername}`);
     
     res.json({
@@ -148,7 +167,11 @@ exports.loginUser = async (req, res) => {
         id: user._id, 
         name: user.name, 
         username: user.username, 
-        email: user.email 
+        email: user.email,
+        databaseUri: user.databaseUri,
+        botEndpoint: user.botEndpoint,
+        schedulerEndpoint: user.schedulerEndpoint,
+        scraperEndpoint: user.scraperEndpoint
       }
     });
   } catch (err) {

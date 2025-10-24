@@ -52,7 +52,17 @@ app.use(helmet({
 }));
 
 // CORS: Strict origin control from environment variable
-const allowedOrigins = process.env.CORS_ORIGIN.split(',').map(origin => origin.trim());
+const envOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim()).filter(Boolean)
+  : [];
+
+const corsFallbackOrigins = [
+  'http://localhost:3000',
+  'https://localhost:3000',
+  'http://127.0.0.1:3000'
+];
+
+const allowedOrigins = Array.from(new Set([...envOrigins, ...corsFallbackOrigins]));
 app.use(cors({
   origin: function(origin, callback) {
     // Allow requests with no origin (like mobile apps or Postman)

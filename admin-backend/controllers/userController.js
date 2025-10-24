@@ -2,6 +2,7 @@
 
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
+const { ensureUserResources } = require('../services/provisioningService');
 
 /**
  * Get the currently logged-in user's profile
@@ -11,15 +12,23 @@ const bcrypt = require('bcryptjs');
  */
 exports.getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user.userId).select('-password');
-    
+    const user = await User.findById(req.user.userId);
+
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-    
-    res.json(user);
+
+    await ensureUserResources(user);
+
+    const safeUser = user.toObject({ versionKey: false });
+    delete safeUser.password;
+
+    res.json(safeUser);
   } catch (err) {
-    console.error('❌ Error fetching user profile:', err);
+    console.error('❌ Error fetching user profile:', {
+      message: err.message,
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
     res.status(500).json({ error: 'Server error fetching profile' });
   }
 };
